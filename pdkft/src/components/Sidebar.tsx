@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 import {
   FlaskConical,
   BarChart2,
@@ -9,7 +10,7 @@ import {
   ClipboardList,
   Settings,
   ShieldCheck,
-  KeyRound,
+  LogOut,
 } from "lucide-react";
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
 
   return (
     <aside className="flex flex-col w-52 h-screen bg-sidebar-bg text-sidebar-text flex-shrink-0">
@@ -53,14 +55,24 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Credentials / user */}
+      {/* Signed-in user */}
       <div className="px-4 py-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-2">
-          <KeyRound size={14} className="text-sidebar-text flex-shrink-0" />
+        <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-xs text-sidebar-text-active font-medium truncate">Lab Credentials</p>
-            <p className="text-xs text-sidebar-text truncate">Kelly Kohlleffel</p>
+            <p className="text-xs text-sidebar-text-active font-medium truncate">
+              {session?.user?.name ?? "Fivetran SE"}
+            </p>
+            <p className="text-xs text-sidebar-text truncate">
+              {session?.user?.email ?? ""}
+            </p>
           </div>
+          <button
+            onClick={() => signOut({ callbackUrl: "/signin" })}
+            className="text-sidebar-text hover:text-white transition-colors flex-shrink-0"
+            title="Sign out"
+          >
+            <LogOut size={14} />
+          </button>
         </div>
       </div>
     </aside>
