@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { setAuthCookie } from "./helpers";
 
 /**
  * Demos list view tests
@@ -52,8 +53,9 @@ const MOCK_DEMOS = [
 ];
 
 test.describe("Demos list - with data", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.route("/api/demos", (route) => {
+  test.beforeEach(async ({ context, page }) => {
+    await setAuthCookie(context);
+    await page.route("**/api/demos", (route) => {
       route.fulfill({ json: MOCK_DEMOS });
     });
   });
@@ -70,9 +72,10 @@ test.describe("Demos list - with data", () => {
 
   test("shows status badges for all demos", async ({ page }) => {
     await page.goto("/demos");
-    await expect(page.getByText("demo_ready")).toBeVisible();
-    await expect(page.getByText("provisioning")).toBeVisible();
-    await expect(page.getByText("done")).toBeVisible();
+    const tbody = page.locator("tbody");
+    await expect(tbody.getByText("Demo Ready")).toBeVisible();
+    await expect(tbody.getByText("Provisioning")).toBeVisible();
+    await expect(tbody.getByText("Done")).toBeVisible();
   });
 
   test("shows partner label when set", async ({ page }) => {
@@ -114,14 +117,13 @@ test.describe("Demos list - with data", () => {
 
   test("teardown prompts confirmation before calling API", async ({ page }) => {
     let teardownCalled = false;
-    await page.route("/api/demos/demo-1/teardown", (route) => {
+    await page.route("**/api/demos/demo-1/teardown", (route) => {
       teardownCalled = true;
       route.fulfill({ json: { ok: true } });
     });
 
     await page.goto("/demos");
 
-    // Dismiss the confirm dialog
     page.on("dialog", (dialog) => dialog.dismiss());
     await page.getByRole("button", { name: "Teardown" }).first().click();
     expect(teardownCalled).toBe(false);
@@ -129,7 +131,7 @@ test.describe("Demos list - with data", () => {
 
   test("teardown calls API when confirmed", async ({ page }) => {
     let teardownCalled = false;
-    await page.route("/api/demos/demo-1/teardown", (route) => {
+    await page.route("**/api/demos/demo-1/teardown", (route) => {
       teardownCalled = true;
       route.fulfill({ json: { ok: true } });
     });
@@ -144,8 +146,9 @@ test.describe("Demos list - with data", () => {
 });
 
 test.describe("Demos list - empty state", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.route("/api/demos", (route) => {
+  test.beforeEach(async ({ context, page }) => {
+    await setAuthCookie(context);
+    await page.route("**/api/demos", (route) => {
       route.fulfill({ json: [] });
     });
   });
@@ -168,10 +171,11 @@ test.describe("Log panel", () => {
     { stage: "Error", message: "Connection refused", level: "error", createdAt: new Date().toISOString() },
   ];
 
-  test.beforeEach(async ({ page }) => {
-    await page.route("/api/demos", (route) => route.fulfill({ json: MOCK_DEMOS }));
-    await page.route("/api/demos/demo-1", (route) => route.fulfill({ json: MOCK_DEMOS[0] }));
-    await page.route("/api/demos/demo-1/logs", (route) => route.fulfill({ json: MOCK_LOGS }));
+  test.beforeEach(async ({ context, page }) => {
+    await setAuthCookie(context);
+    await page.route("**/api/demos", (route) => route.fulfill({ json: MOCK_DEMOS }));
+    await page.route("**/api/demos/demo-1", (route) => route.fulfill({ json: MOCK_DEMOS[0] }));
+    await page.route("**/api/demos/demo-1/logs", (route) => route.fulfill({ json: MOCK_LOGS }));
   });
 
   test("clicking a row opens log panel", async ({ page }) => {

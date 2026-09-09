@@ -1,11 +1,14 @@
 import { test, expect } from "@playwright/test";
-
-/**
- * Navigation and routing tests
- * Covers: root redirect, sidebar links, active state, tab persistence
- */
+import { setAuthCookie, TEST_USER } from "./helpers";
 
 test.describe("Navigation", () => {
+  test.beforeEach(async ({ context, page }) => {
+    await setAuthCookie(context);
+    await page.route("**/api/demos", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
+    );
+  });
+
   test("root redirects to /demos", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/demos/);
@@ -17,10 +20,10 @@ test.describe("Navigation", () => {
     await expect(page.getByText("ft")).toBeVisible();
   });
 
-  test("sidebar shows Lab Credentials footer", async ({ page }) => {
+  test("sidebar shows signed-in user in footer", async ({ page }) => {
     await page.goto("/demos");
-    await expect(page.getByText("Lab Credentials")).toBeVisible();
-    await expect(page.getByText("Kelly Kohlleffel")).toBeVisible();
+    await expect(page.getByText(TEST_USER.name)).toBeVisible();
+    await expect(page.getByText(TEST_USER.email)).toBeVisible();
   });
 
   test("Demos nav item is active on /demos", async ({ page }) => {

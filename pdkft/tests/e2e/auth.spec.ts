@@ -1,29 +1,5 @@
-import { test, expect, BrowserContext } from "@playwright/test";
-import { encode } from "next-auth/jwt";
-
-const TEST_SECRET = process.env.NEXTAUTH_SECRET ?? "8B4qaxRCuqF7ib7qtl+N/TA96p3lLfBp11RLkwTlmCU=";
-
-async function setAuthCookie(context: BrowserContext) {
-  const token = await encode({
-    token: {
-      name: "Kelly Kohlleffel",
-      email: "kelly@fivetran.com",
-      sub: "test-user-id",
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    },
-    secret: TEST_SECRET,
-  });
-  await context.addCookies([
-    {
-      name: "next-auth.session-token",
-      value: token,
-      domain: "localhost",
-      path: "/",
-      httpOnly: true,
-    },
-  ]);
-}
+import { test, expect } from "@playwright/test";
+import { setAuthCookie, TEST_USER } from "./helpers";
 
 test.describe("Auth - unauthenticated redirects", () => {
   test("root redirects to /signin when unauthenticated", async ({ page }) => {
@@ -69,8 +45,8 @@ test.describe("Auth - authenticated session", () => {
 
   test("sidebar shows signed-in user name and email", async ({ page }) => {
     await page.goto("/demos");
-    await expect(page.getByText("Kelly Kohlleffel")).toBeVisible();
-    await expect(page.getByText("kelly@fivetran.com")).toBeVisible();
+    await expect(page.getByText(TEST_USER.name)).toBeVisible();
+    await expect(page.getByText(TEST_USER.email)).toBeVisible();
   });
 
   test("sidebar has sign-out button", async ({ page }) => {

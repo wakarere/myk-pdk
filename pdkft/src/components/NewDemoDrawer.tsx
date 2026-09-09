@@ -5,7 +5,7 @@ import { X, Loader2 } from "lucide-react";
 
 const BLUEPRINTS = [
   { id: "hd", label: "Hybrid Deployment", desc: "Docker ~12 min / GKE ~25 min", available: true },
-  { id: "mdls", label: "MDLS Buildout", desc: "S3/GCS/ADLS - ~20 min", available: true },
+  { id: "mdls", label: "MDLS Buildout", desc: "S3/GCS/ADLS - ~20 min", available: false },
   { id: "odi", label: "ODI Any-Agent", desc: "6 engines, 7 industries - ~30 min", available: false },
 ];
 

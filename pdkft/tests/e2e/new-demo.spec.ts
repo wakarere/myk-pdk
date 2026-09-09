@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { setAuthCookie } from "./helpers";
 
 /**
  * New Demo drawer tests
@@ -13,7 +14,6 @@ const PREFLIGHT_PASS = {
     { name: "GCP project accessible (fivetran-demo)", ok: true },
     { name: "Compute Engine API enabled", ok: true },
     { name: "Secret Manager API enabled", ok: true },
-    { name: "Source PostgreSQL reachable (pg.demo.internal)", ok: true },
   ],
 };
 
@@ -25,7 +25,6 @@ const PREFLIGHT_FAIL = {
     { name: "GCP project accessible", ok: false, message: "GCP auth failed: no credentials found" },
     { name: "Compute Engine API enabled", ok: false },
     { name: "Secret Manager API enabled", ok: false },
-    { name: "Source PostgreSQL reachable", ok: false, message: "Connection refused" },
   ],
 };
 
@@ -45,8 +44,9 @@ const MOCK_DEMO = {
 };
 
 test.describe("New Demo drawer", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.route("/api/demos", (route) => {
+  test.beforeEach(async ({ context, page }) => {
+    await setAuthCookie(context);
+    await page.route("**/api/demos", (route) => {
       if (route.request().method() === "GET") {
         route.fulfill({ json: [] });
       } else {
@@ -103,22 +103,20 @@ test.describe("New Demo drawer", () => {
     await page.goto("/demos");
     await page.getByRole("button", { name: "New Demo" }).click();
     await expect(page.getByRole("heading", { name: "New Demo" })).toBeVisible();
-    await page.locator("button").filter({ has: page.locator("svg") }).first().click();
-    // Backdrop or X button - use Cancel instead which is more reliable
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("heading", { name: "New Demo" })).not.toBeVisible();
   });
 
   test.describe("Preflight - passing", () => {
     test.beforeEach(async ({ page }) => {
-      await page.route("/api/demos/preflight", (route) => {
+      await page.route("**/api/demos/preflight", (route) => {
         route.fulfill({ json: PREFLIGHT_PASS });
       });
     });
 
     test("Run Preflight button calls preflight API", async ({ page }) => {
       let preflightCalled = false;
-      await page.route("/api/demos/preflight", (route) => {
+      await page.route("**/api/demos/preflight", (route) => {
         preflightCalled = true;
         route.fulfill({ json: PREFLIGHT_PASS });
       });
@@ -134,7 +132,7 @@ test.describe("New Demo drawer", () => {
       await page.getByRole("button", { name: "New Demo" }).click();
       await page.getByRole("button", { name: "Run Preflight" }).click();
       const passBadges = page.getByText("PASS");
-      await expect(passBadges).toHaveCount(6);
+      await expect(passBadges).toHaveCount(5);
     });
 
     test("Launch Demo button is enabled when preflight passes", async ({ page }) => {
@@ -155,7 +153,7 @@ test.describe("New Demo drawer", () => {
 
   test.describe("Preflight - failing", () => {
     test.beforeEach(async ({ page }) => {
-      await page.route("/api/demos/preflight", (route) => {
+      await page.route("**/api/demos/preflight", (route) => {
         route.fulfill({ json: PREFLIGHT_FAIL });
       });
     });
