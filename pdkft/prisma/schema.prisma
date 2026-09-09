@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Demo {
+  id          String    @id @default(cuid())
+  runId       String    @unique @default(cuid())
+  blueprint   String    // "hd" | "mdls" | "odi"
+  account     String    // "MDS_SNOWFLAKE_HOL" | "MDS_DATABRICKS_HOL" | "MDS_BIGQUERY_HOL"
+  platform    String    // "docker" | "gke"
+  destination String    // "snowflake" | "databricks" | "big_query"
+  region      String    @default("us-central1-a")
+  label       String?   // optional partner/event label
+  status      String    @default("pending")
+  // pending | preflight_running | preflight_failed | provisioning
+  // qa_running | qa_failed | demo_ready | tearing_down | done | failed
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  expiresAt   DateTime?
+  logs        DemoLog[]
+  resources   DemoResource[]
+}
+
+model DemoLog {
+  id        String   @id @default(cuid())
+  demoId    String
+  demo      Demo     @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  stage     String
+  message   String
+  level     String   @default("info")  // "info" | "warn" | "error"
+  createdAt DateTime @default(now())
+}
+
+model DemoResource {
+  id         String   @id @default(cuid())
+  demoId     String
+  demo       Demo     @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  type       String   // "ft_agent" | "ft_destination" | "ft_connection" | "gce_vm" | "secret"
+  resourceId String
+  name       String
+  status     String   @default("created")  // "created" | "destroyed"
+  createdAt  DateTime @default(now())
+}

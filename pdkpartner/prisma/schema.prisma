@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// Partner org configuration - set during first-run setup wizard
+model OrgConfig {
+  id                String   @id @default("singleton")
+  orgName           String
+  cloudProvider     String   // "gcp" | "aws" | "azure"
+  gcpProjectId      String?
+  gcpZone           String?
+  gcpKeyFilePath    String?  // path to SA JSON on local machine
+  fivetranAccount   String
+  fivetranApiKey    String
+  fivetranApiSecret String
+  destination       String   // "snowflake" | "databricks" | "big_query"
+  snowflakeAccount  String?
+  snowflakeUser     String?
+  snowflakePatToken String?
+  snowflakeWarehouse String?
+  databricksHost    String?
+  databricksPatToken String?
+  databricksWarehouseId String?
+  setupComplete     Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// Same demo tracking as pdkft
+model Demo {
+  id          String    @id @default(cuid())
+  runId       String    @unique @default(cuid())
+  blueprint   String
+  account     String
+  platform    String
+  destination String
+  region      String    @default("us-central1-a")
+  label       String?
+  status      String    @default("pending")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  expiresAt   DateTime?
+  logs        DemoLog[]
+  resources   DemoResource[]
+}
+
+model DemoLog {
+  id        String   @id @default(cuid())
+  demoId    String
+  demo      Demo     @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  stage     String
+  message   String
+  level     String   @default("info")
+  createdAt DateTime @default(now())
+}
+
+model DemoResource {
+  id         String   @id @default(cuid())
+  demoId     String
+  demo       Demo     @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  type       String
+  resourceId String
+  name       String
+  status     String   @default("created")
+  createdAt  DateTime @default(now())
+}

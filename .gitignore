@@ -1,0 +1,8 @@
+node_modules/
+.next/
+dist/
+*.db
+*.db-journal
+.env.local
+.env*.local
+*.key.json
