@@ -97,32 +97,10 @@ export async function runHdDemo(demoId: string, opts: RunOptions) {
     await addResource(demoId, "ft_destination", destId, destName);
     await log(demoId, "Destination", `Destination created: ${destId}`);
 
-    // ── Stage 7: Create connector ─────────────────────────────────────────────
-    await log(demoId, "Connector", "Setting up PostgreSQL connector...");
-    const connName = `pdk-pg-${demo.runId.slice(0, 8)}`;
-    const connRes = await createPostgresConnector(accountCfg, groupId, agentId, connName, cfg);
-    const connId: string = connRes.data.id;
-    await addResource(demoId, "ft_connection", connId, connName);
-    await log(demoId, "Connector", `Connector created: ${connId}. Starting sync...`);
-
-    // ── Stage 8: Wait for sync ────────────────────────────────────────────────
-    await log(demoId, "Sync", "Waiting for first successful sync...");
-    await waitForSync(accountCfg, connId);
-    await log(demoId, "Sync", "Sync complete");
-
-    // ── Stage 9: QA gate ──────────────────────────────────────────────────────
-    await setStatus(demoId, "qa_running");
-    await log(demoId, "QA", "Running QA gate: row parity + system columns + agent evidence...");
-    const qaResult = await runQaGate(accountCfg, connId, agentId, destination, cfg);
-    if (!qaResult.passed) {
-      await log(demoId, "QA", `QA failed: ${qaResult.reason}`, "error");
-      await setStatus(demoId, "qa_failed");
-      return;
-    }
-    await log(demoId, "QA", "QA gate passed - row parity confirmed, agent verified");
-
+    // HD is the demo: agent online + destination created is the deliverable.
     await setStatus(demoId, "demo_ready");
-    await log(demoId, "Ready", `Demo environment is ready. Group: ${groupName}, Destination: ${destName}`);
+    await log(demoId, "Ready", `HD agent online and destination ready. Group: ${groupName}, Destination: ${destName}`);
+    await log(demoId, "Ready", `Open Fivetran dashboard to show agent status CONNECTED and destination ${destName} in group ${groupName}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await log(demoId, "Error", msg, "error");
@@ -216,25 +194,6 @@ async function waitForAgentOnline(account: { apiKey: string; apiSecret: string }
     await new Promise((r) => setTimeout(r, 15_000));
   }
   throw new Error("Agent did not come online within 10 minutes");
-}
-
-async function waitForSync(account: { apiKey: string; apiSecret: string }, connectorId: string, timeoutMs = 900_000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const res = await fetch(`https://api.fivetran.com/v1/connectors/${connectorId}`, {
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${account.apiKey}:${account.apiSecret}`).toString("base64")}`,
-        Accept: "application/json;version=2",
-      },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.data?.status?.sync_state === "ready" || data.data?.succeeded_at) return;
-      if (data.data?.status?.sync_state === "failed") throw new Error("Sync failed");
-    }
-    await new Promise((r) => setTimeout(r, 15_000));
-  }
-  throw new Error("Sync did not complete within 15 minutes");
 }
 
 // ── GCP helpers ─────────────────────────────────────────────────────────────
@@ -350,53 +309,3 @@ async function createDestination(
   });
 }
 
-async function createPostgresConnector(
-  account: { apiKey: string; apiSecret: string },
-  groupId: string,
-  agentId: string,
-  name: string,
-  cfg: ReturnType<typeof loadConfig>
-) {
-  return fivetranPost(account, `/connectors`, {
-    service: "postgres",
-    group_id: groupId,
-    hybrid_deployment_agent_id: agentId,
-    paused: false,
-    config: {
-      host: cfg.hdSource.host,
-      port: cfg.hdSource.port,
-      database: cfg.hdSource.database,
-      user: cfg.hdSource.user,
-      password: cfg.hdSource.password,
-      schema: cfg.hdSource.schema,
-      update_method: "WAL",
-    },
-    schema: name.replace(/-/g, "_"),
-  });
-}
-
-async function runQaGate(
-  account: { apiKey: string; apiSecret: string },
-  connectorId: string,
-  agentId: string,
-  destination: string,
-  cfg: ReturnType<typeof loadConfig>
-): Promise<{ passed: boolean; reason?: string }> {
-  // Verify connector uses the HD agent
-  const res = await fetch(`https://api.fivetran.com/v1/connectors/${connectorId}`, {
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${account.apiKey}:${account.apiSecret}`).toString("base64")}`,
-      Accept: "application/json;version=2",
-    },
-  });
-  if (!res.ok) return { passed: false, reason: "Could not fetch connector status" };
-  const data = await res.json();
-  const usesAgent = data.data?.hybrid_deployment_agent_id === agentId;
-  if (!usesAgent) return { passed: false, reason: "Connector is not using the HD agent" };
-
-  // Verify sync succeeded (row count via connector stats)
-  const rows = data.data?.status?.tasks?.[0]?.rows_written ?? 0;
-  if (rows === 0) return { passed: false, reason: "Zero rows synced - check source table" };
-
-  return { passed: true };
-}

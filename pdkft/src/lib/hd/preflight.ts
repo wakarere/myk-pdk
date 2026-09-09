@@ -114,30 +114,6 @@ export async function runPreflight({
     checks.push({ name: "Secret Manager API enabled", ok: false, message: (e as Error).message });
   }
 
-  // ── Source database reachability ────────────────────────────────────────────
-  try {
-    const cfg = loadConfig();
-    const { Client } = await import("pg");
-    const client = new Client({
-      host: cfg.hdSource.host,
-      port: cfg.hdSource.port,
-      database: cfg.hdSource.database,
-      user: cfg.hdSource.user,
-      password: cfg.hdSource.password,
-      connectionTimeoutMillis: 5000,
-    });
-    await client.connect();
-    const res = await client.query(`SELECT COUNT(*) FROM ${cfg.hdSource.schema}.${cfg.hdSource.table} LIMIT 1`);
-    await client.end();
-    checks.push({ name: `Source PostgreSQL reachable (${cfg.hdSource.host})`, ok: true });
-  } catch (e) {
-    checks.push({
-      name: "Source PostgreSQL reachable",
-      ok: false,
-      message: (e as Error).message,
-    });
-  }
-
   const passed = checks.every((c) => c.ok);
   return { passed, checks };
 }

@@ -95,32 +95,11 @@ export async function runHdDemo(demoId: string) {
     await addResource(demoId, "ft_destination", destId, destName);
     await log(demoId, "Destination", `Destination created: ${destId}`);
 
-    // ── Stage 7: Create connector ───────────────────────────────────────────────
-    await log(demoId, "Connector", "Setting up sample connector...");
-    const connName = `pdk-conn-${shortId}`;
-    const connRes = await createSampleConnector(account, groupId, agentId, connName);
-    const connId: string = connRes.data.id;
-    await addResource(demoId, "ft_connection", connId, connName);
-    await log(demoId, "Connector", `Connector created: ${connId}. Starting sync...`);
-
-    // ── Stage 8: Wait for sync ──────────────────────────────────────────────────
-    await log(demoId, "Sync", "Waiting for first successful sync...");
-    await waitForSync(account, connId);
-    await log(demoId, "Sync", "Sync complete");
-
-    // ── Stage 9: QA gate ────────────────────────────────────────────────────────
-    await setStatus(demoId, "qa_running");
-    await log(demoId, "QA", "Running QA gate: verifying agent association...");
-    const qaResult = await runQaGate(account, connId, agentId);
-    if (!qaResult.passed) {
-      await log(demoId, "QA", `QA failed: ${qaResult.reason}`, "error");
-      await setStatus(demoId, "qa_failed");
-      return;
-    }
-    await log(demoId, "QA", "QA gate passed - agent verified, sync confirmed");
-
+    // HD is the demo: agent online + destination created is the deliverable.
+    // No source connector needed - the story is the agent running in the partner's GCP.
     await setStatus(demoId, "demo_ready");
-    await log(demoId, "Ready", `Demo environment is ready. Group: ${groupName}, Destination: ${destName}`);
+    await log(demoId, "Ready", `HD agent online and destination ready. Group: ${groupName}, Destination: ${destName}`);
+    await log(demoId, "Ready", `Open Fivetran dashboard to show agent status CONNECTED and destination ${destName} in group ${groupName}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await log(demoId, "Error", msg, "error");
@@ -216,25 +195,6 @@ async function waitForAgentOnline(
     await new Promise((r) => setTimeout(r, 15_000));
   }
   throw new Error("Agent did not come online within 10 minutes");
-}
-
-async function waitForSync(account: { apiKey: string; apiSecret: string }, connectorId: string, timeoutMs = 900_000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const res = await fetch(`https://api.fivetran.com/v1/connectors/${connectorId}`, {
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${account.apiKey}:${account.apiSecret}`).toString("base64")}`,
-        Accept: "application/json;version=2",
-      },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.data?.status?.sync_state === "ready" || data.data?.succeeded_at) return;
-      if (data.data?.status?.sync_state === "failed") throw new Error("Sync failed");
-    }
-    await new Promise((r) => setTimeout(r, 15_000));
-  }
-  throw new Error("Sync did not complete within 15 minutes");
 }
 
 // ── GCP helpers ──────────────────────────────────────────────────────────────
@@ -355,37 +315,3 @@ async function createDestination(
   });
 }
 
-async function createSampleConnector(
-  account: { apiKey: string; apiSecret: string },
-  groupId: string,
-  agentId: string,
-  name: string
-) {
-  // Creates a Google Sheets connector as a sample data source for demo purposes.
-  // Partners can swap this for their actual source connector.
-  return fivetranPost(account, `/connectors`, {
-    service: "google_sheets",
-    group_id: groupId,
-    hybrid_deployment_agent_id: agentId,
-    paused: false,
-    schema: name.replace(/-/g, "_"),
-  });
-}
-
-async function runQaGate(
-  account: { apiKey: string; apiSecret: string },
-  connectorId: string,
-  agentId: string
-): Promise<{ passed: boolean; reason?: string }> {
-  const res = await fetch(`https://api.fivetran.com/v1/connectors/${connectorId}`, {
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${account.apiKey}:${account.apiSecret}`).toString("base64")}`,
-      Accept: "application/json;version=2",
-    },
-  });
-  if (!res.ok) return { passed: false, reason: "Could not fetch connector status" };
-  const data = await res.json();
-  const usesAgent = data.data?.hybrid_deployment_agent_id === agentId;
-  if (!usesAgent) return { passed: false, reason: "Connector is not using the HD agent" };
-  return { passed: true };
-}

@@ -23,21 +23,10 @@ export interface DatabricksConfig {
   catalog?: string;
 }
 
-export interface HdSourceConfig {
-  host: string;
-  port: number;
-  database: string;
-  user: string;
-  password: string;
-  schema: string;
-  table: string;
-}
-
 export interface AppConfig {
   accounts: AccountConfig[];
   gcpProjectId: string;
   gcpZone: string;
-  hdSource: HdSourceConfig;
   snowflake?: SnowflakeConfig;
   databricks?: DatabricksConfig;
   demoTtlHours: number;
@@ -65,15 +54,6 @@ export function loadConfig(): AppConfig {
     accounts,
     gcpProjectId: requireEnv("GCP_PROJECT_ID"),
     gcpZone: process.env.GCP_ZONE ?? "us-central1-a",
-    hdSource: {
-      host: requireEnv("HD_SOURCE_HOST"),
-      port: parseInt(process.env.HD_SOURCE_PORT ?? "5432"),
-      database: requireEnv("HD_SOURCE_DATABASE"),
-      user: requireEnv("HD_SOURCE_USER"),
-      password: requireEnv("HD_SOURCE_PASSWORD"),
-      schema: process.env.HD_SOURCE_SCHEMA ?? "public",
-      table: requireEnv("HD_SOURCE_TABLE"),
-    },
     snowflake: process.env.SNOWFLAKE_ACCOUNT
       ? {
           account: process.env.SNOWFLAKE_ACCOUNT!,
