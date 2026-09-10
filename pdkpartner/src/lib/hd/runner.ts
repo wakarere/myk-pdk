@@ -50,8 +50,8 @@ export async function runHdDemo(demoId: string) {
 
     const demo = await db.demo.findUniqueOrThrow({ where: { id: demoId } });
     const shortId = demo.runId.slice(0, 8);
-    const agentName = `pdk-hd-${shortId}`;
-    const groupName = `pdk-group-${shortId}`;
+    const agentName = `pdk_hd_${shortId}`;
+    const groupName = `pdk_group_${shortId}`;
 
     await log(demoId, "HD Agent", `Creating Fivetran group: ${groupName}`);
     const groupRes = await fivetranPost(account, "/groups", { name: groupName });
@@ -201,8 +201,8 @@ async function waitForAgentOnline(
 
 async function getGcpAuthClient(cfg: OrgConfig) {
   const { GoogleAuth } = await import("google-auth-library");
-  const authOptions = cfg.gcpKeyFilePath
-    ? { keyFile: cfg.gcpKeyFilePath, scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
+  const authOptions = cfg.gcpKeyFilePath?.trim()
+    ? { keyFile: cfg.gcpKeyFilePath.trim(), scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
     : { scopes: ["https://www.googleapis.com/auth/cloud-platform"] };
   return new GoogleAuth(authOptions).getClient();
 }

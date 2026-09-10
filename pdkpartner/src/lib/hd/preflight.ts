@@ -52,8 +52,8 @@ export async function runPreflight(): Promise<PreflightResult> {
   } else {
     try {
       const { GoogleAuth } = await import("google-auth-library");
-      const authOptions = cfg.gcpKeyFilePath
-        ? { keyFile: cfg.gcpKeyFilePath, scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
+      const authOptions = cfg.gcpKeyFilePath?.trim()
+        ? { keyFile: cfg.gcpKeyFilePath.trim(), scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
         : { scopes: ["https://www.googleapis.com/auth/cloud-platform"] };
       const client = await new GoogleAuth(authOptions).getClient();
       const res = await client.request({
@@ -76,8 +76,8 @@ export async function runPreflight(): Promise<PreflightResult> {
   if (cfg.gcpProjectId) {
     try {
       const { GoogleAuth } = await import("google-auth-library");
-      const authOptions = cfg.gcpKeyFilePath
-        ? { keyFile: cfg.gcpKeyFilePath, scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
+      const authOptions = cfg.gcpKeyFilePath?.trim()
+        ? { keyFile: cfg.gcpKeyFilePath.trim(), scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
         : { scopes: ["https://www.googleapis.com/auth/cloud-platform"] };
       const client = await new GoogleAuth(authOptions).getClient();
       const res = await client.request({
@@ -98,8 +98,8 @@ export async function runPreflight(): Promise<PreflightResult> {
   if (cfg.gcpProjectId) {
     try {
       const { GoogleAuth } = await import("google-auth-library");
-      const authOptions = cfg.gcpKeyFilePath
-        ? { keyFile: cfg.gcpKeyFilePath, scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
+      const authOptions = cfg.gcpKeyFilePath?.trim()
+        ? { keyFile: cfg.gcpKeyFilePath.trim(), scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
         : { scopes: ["https://www.googleapis.com/auth/cloud-platform"] };
       const client = await new GoogleAuth(authOptions).getClient();
       const res = await client.request({

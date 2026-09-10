@@ -50,8 +50,8 @@ export async function runHdDemo(demoId: string, opts: RunOptions) {
     await log(demoId, "HD Agent", "Creating Fivetran Hybrid Deployment agent...");
 
     const demo = await db.demo.findUniqueOrThrow({ where: { id: demoId } });
-    const agentName = `pdk-hd-${demo.runId.slice(0, 8)}`;
-    const groupName = `pdk-group-${demo.runId.slice(0, 8)}`;
+    const agentName = `pdk_hd_${demo.runId.slice(0, 8)}`;
+    const groupName = `pdk_group_${demo.runId.slice(0, 8)}`;
 
     // Create group
     await log(demoId, "HD Agent", `Creating Fivetran group: ${groupName}`);
