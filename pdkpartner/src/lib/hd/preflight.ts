@@ -117,6 +117,28 @@ export async function runPreflight(blueprint: "hd" | "mdls" | "odi" = "hd"): Pro
     }
   }
 
+  // ── BigQuery API check (MDLS/ODI + big_query destination) ───────────────────
+  if (blueprint !== "hd" && cfg.destination === "big_query" && cfg.gcpProjectId) {
+    try {
+      const { GoogleAuth } = await import("google-auth-library");
+      const authOptions = cfg.gcpKeyFilePath?.trim()
+        ? { keyFile: cfg.gcpKeyFilePath.trim(), scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
+        : { scopes: ["https://www.googleapis.com/auth/cloud-platform"] };
+      const client = await new GoogleAuth(authOptions).getClient();
+      const res = await client.request({
+        url: `https://serviceusage.googleapis.com/v1/projects/${cfg.gcpProjectId}/services/bigquery.googleapis.com`,
+      });
+      const data = (res.data as { state?: string });
+      checks.push({
+        name: "BigQuery API enabled",
+        ok: data.state === "ENABLED",
+        message: data.state !== "ENABLED" ? "Enable via: gcloud services enable bigquery.googleapis.com" : undefined,
+      });
+    } catch (e) {
+      checks.push({ name: "BigQuery API enabled", ok: false, message: (e as Error).message });
+    }
+  }
+
   // ── Destination credentials check ────────────────────────────────────────────
   if (cfg.destination === "snowflake") {
     const ok = !!(cfg.snowflakeAccount && cfg.snowflakeUser && cfg.snowflakePatToken);

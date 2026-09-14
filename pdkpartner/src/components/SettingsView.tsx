@@ -28,6 +28,7 @@ export function SettingsView({ current }: { current: OrgConfig | null }) {
     databricksHost: current?.databricksHost ?? "",
     databricksPatToken: current?.databricksPatToken ?? "",
     databricksWarehouseId: current?.databricksWarehouseId ?? "",
+    bigqueryDataset: current?.bigqueryDataset ?? "",
   });
 
   function set(key: keyof typeof form, value: string) {
@@ -106,7 +107,7 @@ export function SettingsView({ current }: { current: OrgConfig | null }) {
         <section className="px-5 py-4">
           <h2 className="text-sm font-medium text-gray-900 mb-3">Destination</h2>
           <div className="flex gap-2 mb-3">
-            {[["snowflake", "Snowflake"], ["databricks", "Databricks"]].map(([id, label]) => (
+            {[["snowflake", "Snowflake"], ["databricks", "Databricks"], ["big_query", "BigQuery"]].map(([id, label]) => (
               <button
                 key={id}
                 onClick={() => set("destination", id)}
@@ -129,6 +130,12 @@ export function SettingsView({ current }: { current: OrgConfig | null }) {
               <Field label="Databricks host" placeholder="https://adb-xxx.azuredatabricks.net" value={form.databricksHost} onChange={(v) => set("databricksHost", v)} />
               <Field label="PAT Token" type="password" value={form.databricksPatToken} onChange={(v) => set("databricksPatToken", v)} />
               <Field label="Warehouse ID" value={form.databricksWarehouseId} onChange={(v) => set("databricksWarehouseId", v)} />
+            </div>
+          )}
+          {form.destination === "big_query" && (
+            <div className="space-y-3">
+              <Field label="BigQuery dataset name" placeholder="fivetran_mdls" value={form.bigqueryDataset} onChange={(v) => set("bigqueryDataset", v)} />
+              <p className="text-xs text-gray-400">Auth uses your GCP credentials above. Leave blank to default to <code>fivetran_mdls</code>.</p>
             </div>
           )}
         </section>

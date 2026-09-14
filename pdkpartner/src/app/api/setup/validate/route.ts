@@ -30,8 +30,8 @@ export async function POST(req: NextRequest) {
     if (!config.gcpProjectId) return NextResponse.json({ ok: false, error: "GCP Project ID is required" });
     try {
       const { GoogleAuth } = await import("google-auth-library");
-      const authOptions = config.gcpKeyFilePath
-        ? { keyFile: config.gcpKeyFilePath, scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
+      const authOptions = config.gcpKeyFilePath?.trim()
+        ? { keyFile: config.gcpKeyFilePath.trim(), scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
         : { scopes: ["https://www.googleapis.com/auth/cloud-platform"] };
       const auth = new GoogleAuth(authOptions);
       const client = await auth.getClient();
@@ -54,6 +54,10 @@ export async function POST(req: NextRequest) {
     } else if (config.destination === "databricks") {
       if (!config.databricksHost || !config.databricksPatToken || !config.databricksWarehouseId) {
         return NextResponse.json({ ok: false, error: "Databricks host, token, and warehouse ID are required" });
+      }
+    } else if (config.destination === "big_query") {
+      if (!config.gcpProjectId) {
+        return NextResponse.json({ ok: false, error: "GCP Project ID is required for BigQuery — set it in the Cloud step" });
       }
     }
     return NextResponse.json({ ok: true });

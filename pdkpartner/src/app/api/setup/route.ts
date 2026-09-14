@@ -19,6 +19,8 @@ const Schema = z.object({
   databricksHost: z.string().optional(),
   databricksPatToken: z.string().optional(),
   databricksWarehouseId: z.string().optional(),
+  bigqueryDataset: z.string().optional(),
+  provisionDemoDb: z.boolean().optional(),
 });
 
 
@@ -48,6 +50,8 @@ export async function POST(req: NextRequest) {
     databricksHost: d.databricksHost,
     databricksPatToken: d.databricksPatToken,
     databricksWarehouseId: d.databricksWarehouseId,
+    bigqueryDataset: d.bigqueryDataset,
+    provisionDemoDb: d.provisionDemoDb ?? false,
     setupComplete: true,
   };
 

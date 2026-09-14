@@ -22,6 +22,7 @@ interface Config {
   gcpProjectId: string;
   gcpZone: string;
   gcpKeyFilePath: string;
+  provisionDemoDb: boolean;
   destination: string;
   snowflakeAccount: string;
   snowflakeUser: string;
@@ -30,16 +31,17 @@ interface Config {
   databricksHost: string;
   databricksPatToken: string;
   databricksWarehouseId: string;
+  bigqueryDataset: string;
 }
 
 export function SetupWizard() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("org");
-  const [config, setConfig] = useState<Partial<Config>>({ cloudProvider: "gcp", destination: "snowflake" });
+  const [config, setConfig] = useState<Partial<Config>>({ cloudProvider: "gcp", destination: "snowflake", provisionDemoDb: false });
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function set(key: keyof Config, value: string) {
+  function set(key: keyof Config, value: string | boolean) {
     setConfig((c) => ({ ...c, [key]: value }));
     setError(null);
   }
@@ -134,6 +136,20 @@ export function SetupWizard() {
             <Field label="GCP Zone" placeholder="us-central1-a" value={config.gcpZone ?? "us-central1-a"} onChange={(v) => set("gcpZone", v)} />
             <Field label="Service Account Key file path" placeholder="/Users/you/keys/sa-key.json" value={config.gcpKeyFilePath ?? ""} onChange={(v) => set("gcpKeyFilePath", v)} />
             <p className="text-xs text-gray-400">Or leave blank to use Application Default Credentials (gcloud auth application-default login).</p>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer pt-1">
+              <input
+                type="checkbox"
+                checked={config.provisionDemoDb ?? false}
+                onChange={(e) => set("provisionDemoDb", e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              Provision demo PostgreSQL database (creates a Cloud SQL instance with 7 industry schemas)
+            </label>
+            {config.provisionDemoDb && (
+              <p className="text-xs text-gray-400 pl-6">
+                A <code>db-g1-small</code> Cloud SQL Postgres 15 instance named <code>pdk-demo-db</code> will be created in your GCP project during each demo run. Agriculture, pharma, retail, financial services, healthcare, higher education, and supply chain schemas are seeded with ~750 rows each.
+              </p>
+            )}
           </>
         )}
 
@@ -141,7 +157,7 @@ export function SetupWizard() {
           <>
             <h2 className="text-base font-medium text-gray-900">Destination</h2>
             <div className="flex gap-2 mb-2">
-              {[["snowflake", "Snowflake"], ["databricks", "Databricks"]].map(([id, label]) => (
+              {[["snowflake", "Snowflake"], ["databricks", "Databricks"], ["big_query", "BigQuery"]].map(([id, label]) => (
                 <button key={id} onClick={() => set("destination", id)}
                   className={`px-3 py-1.5 text-sm rounded border transition-colors ${config.destination === id ? "border-brand bg-brand-light text-brand" : "border-gray-200 text-gray-500"}`}>
                   {label}
@@ -151,9 +167,10 @@ export function SetupWizard() {
             {config.destination === "snowflake" && (
               <>
                 <Field label="Snowflake account URL" placeholder="org-account.snowflakecomputing.com" value={config.snowflakeAccount ?? ""} onChange={(v) => set("snowflakeAccount", v)} />
-                <Field label="User" value={config.snowflakeUser ?? ""} onChange={(v) => set("snowflakeUser", v)} />
-                <Field label="PAT Token" type="password" value={config.snowflakePatToken ?? ""} onChange={(v) => set("snowflakePatToken", v)} />
-                <Field label="Warehouse" placeholder="COMPUTE_WH" value={config.snowflakeWarehouse ?? ""} onChange={(v) => set("snowflakeWarehouse", v)} />
+                <Field label="Snowflake username" placeholder="FIVETRAN_USER" value={config.snowflakeUser ?? ""} onChange={(v) => set("snowflakeUser", v)} />
+                <TextareaField label="RSA Private Key (PKCS#8 PEM)" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" value={config.snowflakePatToken ?? ""} onChange={(v) => set("snowflakePatToken", v)} />
+                <p className="text-xs text-gray-400 -mt-2">Generate with: <code>openssl genrsa | openssl pkcs8 -topk8 -nocrypt</code>. Register the public key in Snowflake: <code>ALTER USER &lt;user&gt; SET RSA_PUBLIC_KEY='...'</code></p>
+                <Field label="Warehouse" placeholder="HANDS_ON_LAB_WAREHOUSE" value={config.snowflakeWarehouse ?? ""} onChange={(v) => set("snowflakeWarehouse", v)} />
               </>
             )}
             {config.destination === "databricks" && (
@@ -161,6 +178,14 @@ export function SetupWizard() {
                 <Field label="Databricks host" placeholder="https://adb-xxx.azuredatabricks.net" value={config.databricksHost ?? ""} onChange={(v) => set("databricksHost", v)} />
                 <Field label="PAT Token" type="password" value={config.databricksPatToken ?? ""} onChange={(v) => set("databricksPatToken", v)} />
                 <Field label="Warehouse ID" value={config.databricksWarehouseId ?? ""} onChange={(v) => set("databricksWarehouseId", v)} />
+              </>
+            )}
+            {config.destination === "big_query" && (
+              <>
+                <Field label="BigQuery dataset name" placeholder="fivetran_mdls" value={config.bigqueryDataset ?? ""} onChange={(v) => set("bigqueryDataset", v)} />
+                <p className="text-xs text-gray-400 -mt-2">
+                  Fivetran will create external BigQuery tables in this dataset over the GCS lake files. Auth uses your existing GCP credentials — no extra setup needed.
+                </p>
               </>
             )}
           </>
@@ -203,6 +228,18 @@ function Field({ label, placeholder, value, onChange, type = "text" }: {
       <label className="block text-xs font-medium text-gray-700 mb-1">{label}</label>
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
         className="w-full px-3 py-2 text-sm border border-gray-200 rounded focus:outline-none focus:border-brand" />
+    </div>
+  );
+}
+
+function TextareaField({ label, placeholder, value, onChange }: {
+  label: string; placeholder?: string; value: string; onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-700 mb-1">{label}</label>
+      <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={5}
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded focus:outline-none focus:border-brand font-mono text-xs" />
     </div>
   );
 }

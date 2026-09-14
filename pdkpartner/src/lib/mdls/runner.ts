@@ -131,6 +131,47 @@ export async function runMdlsDemo(demoId: string) {
     lap("MDLS Destination");
     await log(demoId, "MDLS Destination", `Destination connected (${s()})`);
 
+    // ── Stage 4.5: Databricks UC attach (if destination=databricks) ─────────────
+    let ucCatalogName: string | null = null;
+    if (cfg.destination === "databricks" && cfg.databricksHost && cfg.databricksPatToken && cfg.databricksWarehouseId) {
+      ucCatalogName = `ft_mdls_${destId}`;
+      await log(demoId, "Databricks", `Attaching Databricks Unity Catalog: ${ucCatalogName}...`);
+      try {
+        await fivetranPatch(account, `/destinations/${destId}`, {
+          config: {
+            should_maintain_tables_in_databricks: true,
+            uc_catalog_name: ucCatalogName,
+            databricks_server_host_name: cfg.databricksHost.replace(/^https?:\/\//, ""),
+            databricks_http_path: `/sql/1.0/warehouses/${cfg.databricksWarehouseId}`,
+            databricks_personal_access_token: cfg.databricksPatToken,
+          },
+        });
+        await addResource(demoId, "databricks_uc_catalog", ucCatalogName, ucCatalogName);
+        await log(demoId, "Databricks", `UC catalog configured — Fivetran will populate it during sync`);
+      } catch (e) {
+        await log(demoId, "Databricks", `UC attach: ${(e as Error).message}`, "warn");
+        ucCatalogName = null;
+      }
+    }
+
+    // ── Stage 4.6: BigQuery BQMS attach (if destination=big_query) ──────────────
+    if (cfg.destination === "big_query" && cfg.gcpProjectId) {
+      const bqDataset = cfg.bigqueryDataset?.trim() || "fivetran_mdls";
+      await log(demoId, "BigQuery", `Enabling BQMS — project=${cfg.gcpProjectId}, dataset=${bqDataset}...`);
+      try {
+        await fivetranPatch(account, `/destinations/${destId}`, {
+          config: {
+            should_maintain_tables_in_bqms: true,
+            bigquery_project_id: cfg.gcpProjectId,
+            bigquery_dataset_id: bqDataset,
+          },
+        });
+        await log(demoId, "BigQuery", `BQMS enabled — Fivetran will create external BigQuery tables during sync`);
+      } catch (e) {
+        await log(demoId, "BigQuery", `BQMS attach failed: ${(e as Error).message}`, "warn");
+      }
+    }
+
     // ── Stage 5: Grant Fivetran SA objectAdmin on bucket ───────────────────────
     if (fivetranSa) {
       await log(demoId, "GCS IAM", `Granting storage.objectAdmin to ${fivetranSa}...`);
@@ -248,7 +289,7 @@ export async function runMdlsDemo(demoId: string) {
     lap("QA Gate");
     const allPass = qaChecks.every(c => c.status === "pass");
     if (allPass) {
-      await log(demoId, "QA Gate", "VERDICT: PASS — Delta + Iceberg + Parquet confirmed in GCS; Snowflake reads Iceberg via catalog.");
+      await log(demoId, "QA Gate", "VERDICT: PASS — Delta + Iceberg + Parquet confirmed in GCS; destination engine reads confirmed.");
     } else {
       await log(demoId, "QA Gate", `VERDICT: PARTIAL PASS — ${qaChecks.filter(c => c.status !== "pass").map(c => c.name).join(", ")} failed`, "warn");
     }
@@ -267,6 +308,13 @@ export async function runMdlsDemo(demoId: string) {
     if (cfg.destination === "snowflake" && polarisClientId) {
       const dbName = `FT_MDLS_${destId.toUpperCase()}_DB`;
       await log(demoId, "Ready", `Snowflake: SELECT * FROM ${dbName}."mdls_demo_agriculture"."agr_records" LIMIT 10`);
+    }
+    if (cfg.destination === "databricks" && ucCatalogName) {
+      await log(demoId, "Ready", `Databricks: SELECT * FROM \`${ucCatalogName}\`.\`mdls_demo_agriculture\`.\`agr_records\` LIMIT 10`);
+    }
+    if (cfg.destination === "big_query" && cfg.gcpProjectId) {
+      const dataset = cfg.bigqueryDataset?.trim() || "fivetran_mdls";
+      await log(demoId, "Ready", `BigQuery: SELECT * FROM \`${cfg.gcpProjectId}.${dataset}.mdls_demo_agriculture__agr_records\` LIMIT 10`);
     }
   } catch (e) {
     const err = e as any;
@@ -299,6 +347,9 @@ export async function teardownMdlsDemo(demoId: string) {
       if (resource.type === "ft_connection") {
         await log(demoId, "Teardown", `Deleting connection: ${resource.resourceId}`);
         await fivetranDelete(account, `/connections/${resource.resourceId}`);
+      } else if (resource.type === "databricks_uc_catalog") {
+        // UC catalog is managed by Fivetran MDLS — deleted when destination is deleted
+        await log(demoId, "Teardown", `UC catalog ${resource.name} will be removed with the MDLS destination`);
       } else if (resource.type === "ft_destination") {
         await log(demoId, "Teardown", `Deleting MDLS destination: ${resource.resourceId}`);
         await fivetranDelete(account, `/destinations/${resource.resourceId}`);
@@ -397,6 +448,104 @@ async function runMdlsQaGate(
       }
     } catch (e) {
       checks.push({ name: "snowflake_count", status: "fail", detail: (e as Error).message });
+    }
+  }
+
+  // 4. Databricks UC row count (if destination=databricks and UC catalog was attached)
+  if (cfg.destination === "databricks" && cfg.databricksHost && cfg.databricksPatToken && cfg.databricksWarehouseId) {
+    try {
+      const ucCatalog = `ft_mdls_${destId}`;
+      const base = cfg.databricksHost.startsWith("http") ? cfg.databricksHost : `https://${cfg.databricksHost}`;
+      const stmtRes = await fetch(`${base}/api/2.0/sql/statements`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${cfg.databricksPatToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          warehouse_id: cfg.databricksWarehouseId,
+          statement: `SELECT COUNT(*) AS n FROM \`${ucCatalog}\`.\`mdls_demo_agriculture\`.\`agr_records\``,
+          wait_timeout: "30s",
+        }),
+      });
+      if (stmtRes.ok) {
+        const stmtData = await stmtRes.json() as { result?: { data_array?: string[][] }; state?: string };
+        const count = parseInt(stmtData.result?.data_array?.[0]?.[0] ?? "0", 10);
+        if (count > 0) {
+          checks.push({ name: "databricks_uc_count", status: "pass", detail: `${count} rows in ${ucCatalog}.mdls_demo_agriculture.agr_records` });
+        } else {
+          checks.push({ name: "databricks_uc_count", status: "fail", detail: `count=0 — UC catalog may still be populating (state=${stmtData.state})` });
+        }
+      } else {
+        const text = await stmtRes.text();
+        checks.push({ name: "databricks_uc_count", status: "fail", detail: `Databricks SQL: ${stmtRes.status} ${text.slice(0, 200)}` });
+      }
+    } catch (e) {
+      checks.push({ name: "databricks_uc_count", status: "fail", detail: (e as Error).message });
+    }
+  }
+
+  // 5. BigQuery BQMS row count (if destination=big_query)
+  if (cfg.destination === "big_query" && cfg.gcpProjectId) {
+    try {
+      const dataset = cfg.bigqueryDataset?.trim() || "fivetran_mdls";
+      // BQMS creates external tables; table name follows connector schema+table naming
+      const tableRef = `\`${cfg.gcpProjectId}.${dataset}.mdls_demo_agriculture__agr_records\``;
+      const { GoogleAuth } = await import("google-auth-library");
+      const opts = cfg.gcpKeyFilePath?.trim()
+        ? { keyFile: cfg.gcpKeyFilePath.trim(), scopes: ["https://www.googleapis.com/auth/cloud-platform"] }
+        : { scopes: ["https://www.googleapis.com/auth/cloud-platform"] };
+      const client = await new GoogleAuth(opts).getClient();
+      const tokenRes = await (client as any).getAccessToken();
+      const bqToken: string = tokenRes.token;
+
+      const jobRes = await fetch(
+        `https://bigquery.googleapis.com/bigquery/v2/projects/${cfg.gcpProjectId}/jobs`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${bqToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            configuration: {
+              query: {
+                query: `SELECT COUNT(*) AS n FROM ${tableRef}`,
+                useLegacySql: false,
+              },
+            },
+          }),
+        }
+      );
+      if (jobRes.ok) {
+        const jobData = await jobRes.json() as { jobReference?: { jobId?: string }; status?: { errorResult?: { message?: string } } };
+        const jobId = jobData.jobReference?.jobId;
+        if (jobId) {
+          // Poll for completion
+          let result: { rows?: Array<{ f: Array<{ v: string }> }> } | null = null;
+          for (let i = 0; i < 12; i++) {
+            await new Promise(r => setTimeout(r, 5_000));
+            const queryRes = await fetch(
+              `https://bigquery.googleapis.com/bigquery/v2/projects/${cfg.gcpProjectId}/queries/${jobId}?timeoutMs=5000`,
+              { headers: { Authorization: `Bearer ${bqToken}` } }
+            );
+            if (queryRes.ok) {
+              const qd = await queryRes.json() as { jobComplete?: boolean; rows?: Array<{ f: Array<{ v: string }> }> };
+              if (qd.jobComplete) { result = qd; break; }
+            }
+          }
+          const count = parseInt(result?.rows?.[0]?.f?.[0]?.v ?? "0", 10);
+          if (count > 0) {
+            checks.push({ name: "bigquery_bqms_count", status: "pass", detail: `${count} rows in ${dataset}.mdls_demo_agriculture__agr_records` });
+          } else {
+            checks.push({ name: "bigquery_bqms_count", status: "fail", detail: `count=0 — BQMS tables may still be creating (check ${dataset} dataset in BigQuery console)` });
+          }
+        } else {
+          checks.push({ name: "bigquery_bqms_count", status: "fail", detail: `BQ job creation failed: ${JSON.stringify(jobData.status?.errorResult)}` });
+        }
+      } else {
+        const text = await jobRes.text();
+        checks.push({ name: "bigquery_bqms_count", status: "fail", detail: `BigQuery job API: ${jobRes.status} ${text.slice(0, 200)}` });
+      }
+    } catch (e) {
+      checks.push({ name: "bigquery_bqms_count", status: "fail", detail: (e as Error).message });
     }
   }
 

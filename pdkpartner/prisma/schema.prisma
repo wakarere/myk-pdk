@@ -26,6 +26,7 @@ model OrgConfig {
   databricksHost    String?
   databricksPatToken String?
   databricksWarehouseId String?
+  bigqueryDataset   String?  // dataset for BQMS external tables (default: fivetran_mdls)
   provisionDemoDb   Boolean  @default(false)
   setupComplete     Boolean  @default(false)
   createdAt         DateTime @default(now())
