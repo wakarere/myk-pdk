@@ -170,33 +170,75 @@ export async function runMdlsDemo(demoId: string, opts: RunOptions) {
     });
     const connId: string = connRes.data.id;
     await addResource(demoId, "ft_connection", connId, schemaPrefix);
-    await log(demoId, "Connector", `Connection created: ${connId} — running setup tests...`);
+    await log(demoId, "Connector", `Connection created: ${connId}`);
 
-    // ── Stage 7: Schema discovery and narrowing ─────────────────────────────────
-    await waitForSetupState(accountCfg, connId, "connected", 120_000);
-    await log(demoId, "Connector", "Setup tests passed — reloading schema...");
+    // ── Stage 7: Setup test + cert approval ─────────────────────────────────────
+    await log(demoId, "Connector", "Running setup tests to approve any TLS certificates...");
+    try {
+      const testResult = await fivetranPost(accountCfg, `/connections/${connId}/test`, {});
+      const setupTests = (testResult.data?.setup_tests ?? []) as Array<{
+        title: string; status: string;
+        details?: Array<{ hash?: string; name?: string }>;
+      }>;
+      for (const test of setupTests) {
+        if (test.status === "FAILED" && test.details?.length) {
+          for (const detail of test.details) {
+            if (detail.hash) {
+              await log(demoId, "Connector", `Approving cert fingerprint for "${test.title}": ${detail.name ?? detail.hash.slice(0, 20)}...`);
+              try {
+                await fivetranPost(accountCfg, `/connections/${connId}/fingerprints`, {
+                  hash: detail.hash,
+                  public_key: "fivetran",
+                });
+                await log(demoId, "Connector", "Certificate fingerprint approved");
+              } catch (e) {
+                await log(demoId, "Connector", `Cert approval: ${(e as Error).message}`, "warn");
+              }
+            }
+          }
+        }
+      }
+      const retest = await fivetranPost(accountCfg, `/connections/${connId}/test`, {});
+      const allPassed = (retest.data?.setup_tests ?? []).every(
+        (t: { status: string }) => t.status === "PASSED" || t.status === "SKIPPED"
+      );
+      await log(demoId, "Connector", allPassed ? "All setup tests passed" : "Setup tests: some still failing (will proceed)", allPassed ? "info" : "warn");
+    } catch (e) {
+      await log(demoId, "Connector", `Setup test run: ${(e as Error).message} — continuing`, "warn");
+    }
 
-    await fivetranPost(accountCfg, `/connections/${connId}/schemas/reload`, { exclude_mode: "PRESERVE" });
-    await waitForSchemas(accountCfg, connId, 120_000);
-    await log(demoId, "Connector", "Schema discovered — narrowing to agriculture.agr_records...");
-
-    await fivetranPatch(accountCfg, `/connections/${connId}/schemas`, {
-      schema_change_handling: "BLOCK_ALL",
-      schemas: {
-        agriculture: {
-          enabled: true,
-          tables: { agr_records: { enabled: true } },
+    // Schema narrowing (requires setup_state=connected; non-fatal if not ready)
+    try {
+      await fivetranPost(accountCfg, `/connections/${connId}/schemas/reload`, { exclude_mode: "PRESERVE" });
+      await waitForSchemas(accountCfg, connId, 60_000);
+      await log(demoId, "Connector", "Schema discovered — narrowing to agriculture.agr_records...");
+      await fivetranPatch(accountCfg, `/connections/${connId}/schemas`, {
+        schema_change_handling: "BLOCK_ALL",
+        schemas: {
+          agriculture: {
+            enabled: true,
+            tables: { agr_records: { enabled: true } },
+          },
         },
-      },
-    });
+      });
+      await log(demoId, "Connector", "Schema narrowed to agriculture.agr_records");
+    } catch {
+      await log(demoId, "Connector", "Pre-sync schema narrowing not available yet — will sync all schemas", "warn");
+    }
     lap("Connector");
 
     // ── Stage 8: Trigger sync + wait ────────────────────────────────────────────
     await fivetranPatch(accountCfg, `/connections/${connId}`, { paused: false });
+    try {
+      await waitForSetupState(accountCfg, connId, "connected", 300_000);
+      await log(demoId, "Connector", "Setup state connected — triggering sync");
+    } catch {
+      await log(demoId, "Connector", "Setup state check timed out — proceeding with force sync", "warn");
+    }
     await fivetranPost(accountCfg, `/connections/${connId}/sync`, { force: true });
     await log(demoId, "Sync", "Initial sync triggered — agriculture.agr_records → GCS (Delta + Iceberg + Parquet)...");
 
-    const syncResult = await waitForSync(accountCfg, connId, 600_000);
+    const syncResult = await waitForSync(accountCfg, connId, 1_200_000);
     lap("Sync");
     if (syncResult.succeeded_at) {
       await log(demoId, "Sync", `Sync complete (${s()}) — data in gs://${bucketName}/${prefix}/mdls_demo_agriculture/`);

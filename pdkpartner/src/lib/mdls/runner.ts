@@ -221,9 +221,45 @@ export async function runMdlsDemo(demoId: string) {
     await addResource(demoId, "ft_connection", connId, schemaPrefix);
     await log(demoId, "Connector", `Connection created: ${connId}`);
 
-    // ── Stage 7: Schema narrowing (pre-sync) ───────────────────────────────────
-    // Attempt to set schema config before first sync — may fail if setup_state is
-    // not yet connected. If it fails, we fall through to a full-table sync.
+    // ── Stage 7: Setup test + cert approval ───────────────────────────────────
+    // Run setup tests explicitly while still paused so we can catch and approve
+    // any TLS certificate fingerprints (e.g. Cloud SQL server cert) before sync.
+    await log(demoId, "Connector", "Running setup tests to approve any TLS certificates...");
+    try {
+      const testResult = await fivetranPost(account, `/connections/${connId}/test`, {});
+      const setupTests = (testResult.data?.setup_tests ?? []) as Array<{
+        title: string; status: string;
+        details?: Array<{ hash?: string; name?: string }>;
+      }>;
+      for (const test of setupTests) {
+        if (test.status === "FAILED" && test.details?.length) {
+          for (const detail of test.details) {
+            if (detail.hash) {
+              await log(demoId, "Connector", `Approving cert fingerprint for "${test.title}": ${detail.name ?? detail.hash.slice(0, 20)}...`);
+              try {
+                await fivetranPost(account, `/connections/${connId}/fingerprints`, {
+                  hash: detail.hash,
+                  public_key: "fivetran",
+                });
+                await log(demoId, "Connector", "Certificate fingerprint approved — re-running setup tests");
+              } catch (e) {
+                await log(demoId, "Connector", `Cert approval: ${(e as Error).message}`, "warn");
+              }
+            }
+          }
+        }
+      }
+      // Re-run after any approvals to verify
+      const retest = await fivetranPost(account, `/connections/${connId}/test`, {});
+      const allPassed = (retest.data?.setup_tests ?? []).every(
+        (t: { status: string }) => t.status === "PASSED" || t.status === "SKIPPED"
+      );
+      await log(demoId, "Connector", allPassed ? "All setup tests passed" : "Setup tests: some still failing (will proceed)", allPassed ? "info" : "warn");
+    } catch (e) {
+      await log(demoId, "Connector", `Setup test run: ${(e as Error).message} — continuing`, "warn");
+    }
+
+    // Schema narrowing (non-fatal — requires setup_state=connected)
     try {
       await fivetranPatch(account, `/connections/${connId}/schemas`, {
         schema_change_handling: "BLOCK_ALL",
@@ -242,20 +278,18 @@ export async function runMdlsDemo(demoId: string) {
     lap("Connector");
 
     // ── Stage 8: Unpause + trigger sync ────────────────────────────────────────
-    // Unpausing allows Fivetran to run setup tests then start the initial sync.
     await fivetranPatch(account, `/connections/${connId}`, { paused: false });
-    // Wait for setup tests to pass (connection becomes active) before forcing sync
     try {
       await waitForSetupState(account, connId, "connected", 300_000);
       await log(demoId, "Connector", "Setup tests passed — triggering sync");
     } catch {
-      await log(demoId, "Connector", "Setup state check timed out — sync may already be running", "warn");
+      await log(demoId, "Connector", "Setup state check timed out — proceeding with force sync", "warn");
     }
     await fivetranPost(account, `/connections/${connId}/sync`, { force: true });
     await log(demoId, "Sync", "Initial sync triggered — data flowing to GCS lake (Delta + Iceberg + Parquet)...");
     await log(demoId, "Sync", "One write, three open formats: Delta maintains transaction log, Iceberg metadata for catalog, Parquet for the actual data.");
 
-    const syncResult = await waitForSync(account, connId, 600_000);
+    const syncResult = await waitForSync(account, connId, 1_200_000);
     lap("Sync");
     if (syncResult.succeeded_at) {
       await log(demoId, "Sync", `Sync complete (${s()}) — agriculture.agr_records landed in gs://${bucketName}/${prefix}/mdls_demo_agriculture/`);
