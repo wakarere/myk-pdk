@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { teardownHdDemo } from "@/lib/hd/runner";
+import { teardownMdlsDemo } from "@/lib/mdls/runner";
+import { teardownOdiDemo } from "@/lib/odi/runner";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const demo = await db.demo.findUnique({ where: { id: params.id } });
@@ -8,7 +10,13 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   await db.demo.update({ where: { id: params.id }, data: { status: "tearing_down" } });
 
-  teardownHdDemo(params.id).catch(console.error);
+  if (demo.blueprint === "mdls") {
+    teardownMdlsDemo(params.id).catch(console.error);
+  } else if (demo.blueprint === "odi") {
+    teardownOdiDemo(params.id).catch(console.error);
+  } else {
+    teardownHdDemo(params.id).catch(console.error);
+  }
 
   return NextResponse.json({ ok: true });
 }

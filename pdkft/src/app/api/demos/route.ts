@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { runHdDemo } from "@/lib/hd/runner";
+import { runMdlsDemo } from "@/lib/mdls/runner";
+import { runOdiDemo } from "@/lib/odi/runner";
 import { z } from "zod";
 
 const CreateDemoSchema = z.object({
@@ -35,8 +37,11 @@ export async function POST(req: NextRequest) {
   // Run provisioning async (fire and forget - status updates via polling)
   if (blueprint === "hd") {
     runHdDemo(demo.id, { account, platform, destination }).catch(console.error);
+  } else if (blueprint === "mdls") {
+    runMdlsDemo(demo.id, { account, platform, destination }).catch(console.error);
+  } else if (blueprint === "odi") {
+    runOdiDemo(demo.id, { account, platform, destination }).catch(console.error);
   }
-  // mdls and odi: future implementation
 
   return NextResponse.json(demo, { status: 201 });
 }

@@ -26,6 +26,7 @@ model OrgConfig {
   databricksHost    String?
   databricksPatToken String?
   databricksWarehouseId String?
+  provisionDemoDb   Boolean  @default(false)
   setupComplete     Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

@@ -4,9 +4,9 @@ import { useState, useEffect, useRef } from "react";
 import { X, Loader2, CheckCircle2, XCircle } from "lucide-react";
 
 const BLUEPRINTS = [
-  { id: "hd", label: "Hybrid Deployment", desc: "Docker on GCE - ~12 min", available: true },
-  { id: "mdls", label: "MDLS Buildout", desc: "Multi-destination lake - ~20 min", available: false },
-  { id: "odi", label: "ODI Any-Agent", desc: "6 engines, 7 industries - ~30 min", available: false },
+  { id: "hd", label: "Hybrid Deployment", desc: "Docker on GCE — ~12 min" },
+  { id: "mdls", label: "MDLS Buildout", desc: "GCS lake, Snowflake Iceberg — ~20 min" },
+  { id: "odi", label: "ODI Any-Agent", desc: "MDLS + Genie + Cortex — ~30 min" },
 ];
 
 interface LogEntry {
@@ -46,18 +46,22 @@ export function PartnerNewDemoDrawer({
     if (step !== "running" || !demoId) return;
 
     async function poll() {
-      const [logsRes, demoRes] = await Promise.all([
-        fetch(`/api/demos/${demoId}/logs`),
-        fetch(`/api/demos/${demoId}`),
-      ]);
-      if (logsRes.ok) setLogs(await logsRes.json());
-      if (demoRes.ok) {
-        const demo = await demoRes.json();
-        setDemoStatus(demo.status);
-        if (demo.status === "demo_ready" || demo.status === "failed") {
-          clearInterval(pollRef.current!);
-          onCreated();
+      try {
+        const [logsRes, demoRes] = await Promise.all([
+          fetch(`/api/demos/${demoId}/logs`),
+          fetch(`/api/demos/${demoId}`),
+        ]);
+        if (logsRes.ok) setLogs(await logsRes.json());
+        if (demoRes.ok) {
+          const demo = await demoRes.json();
+          setDemoStatus(demo.status);
+          if (demo.status === "demo_ready" || demo.status === "failed") {
+            clearInterval(pollRef.current!);
+            onCreated();
+          }
         }
+      } catch {
+        // Network blip during hot reload - will retry
       }
     }
 
@@ -75,7 +79,11 @@ export function PartnerNewDemoDrawer({
     setStep("preflight");
     setError(null);
     try {
-      const res = await fetch("/api/demos/preflight", { method: "POST" });
+      const res = await fetch("/api/demos/preflight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blueprint }),
+      });
       setPreflightResult(await res.json());
     } catch {
       setError("Preflight request failed. Check server logs.");
@@ -155,11 +163,9 @@ export function PartnerNewDemoDrawer({
                     <label
                       key={bp.id}
                       className={`flex items-start gap-3 p-3 rounded border cursor-pointer transition-colors ${
-                        bp.available
-                          ? blueprint === bp.id
-                            ? "border-brand bg-brand-light"
-                            : "border-gray-200 hover:border-gray-300"
-                          : "border-gray-100 opacity-50 cursor-not-allowed"
+                        blueprint === bp.id
+                          ? "border-brand bg-brand-light"
+                          : "border-gray-200 hover:border-gray-300"
                       }`}
                     >
                       <input
@@ -167,14 +173,12 @@ export function PartnerNewDemoDrawer({
                         name="blueprint"
                         value={bp.id}
                         checked={blueprint === bp.id}
-                        disabled={!bp.available}
                         onChange={() => setBlueprint(bp.id)}
                         className="mt-0.5"
                       />
                       <div>
                         <p className="text-sm font-medium text-gray-900">{bp.label}</p>
                         <p className="text-xs text-gray-500">{bp.desc}</p>
-                        {!bp.available && <p className="text-xs text-gray-400 italic">Coming soon</p>}
                       </div>
                     </label>
                   ))}
