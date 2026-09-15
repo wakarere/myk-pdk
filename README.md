@@ -1,147 +1,84 @@
-# myk-pdk — Partner Demo Kit
+# Partner Demo Kit (PDK)
 
-Two self-contained demo portals for Fivetran partner enablement.
-
-| Project | Purpose | Who runs it |
-|---|---|---|
-| `pdkft/` | Internal Fivetran demo launcher — uses pre-configured SE credentials | Fivetran SEs |
-| `pdkpartner/` | Partner-owned demo launcher — partners bring their own accounts | GSI/SI partners |
-
-Both run locally on a Mac. No cloud hosting required.
+The Partner Demo Kit is a locally-run web application that lets Fivetran partner teams spin up fully working data pipeline demos in minutes, without any manual Fivetran UI clicks or infrastructure setup. A partner SE opens the app in their browser, picks a demo type, hits Launch, and the tool automatically provisions everything end-to-end: a Fivetran group, a cloud data lake on GCS, a PostgreSQL source connector, and the initial data sync — all while streaming live progress logs so the SE can narrate what's happening in real time. Once done, tearing everything down is a single button click, leaving no orphaned cloud resources behind.
 
 ---
+
+# Technical Reference
+
+## What it is
+
+Two Next.js applications running on `localhost`:
+
+| App | Port | Purpose |
+|---|---|---|
+| `pdkpartner` | 3002 | Partner-owned deployment — partner brings their own Fivetran account + GCP project |
+| `pdkft` | 3001 | Fivetran-internal deployment — uses pre-configured Fivetran SE accounts |
+
+Both share the same UI design and blueprint system. Data is stored in a local SQLite database via Prisma.
 
 ## Blueprints
 
-Three demo blueprints are available in both portals:
+### HD — Hybrid Deployment
+Provisions a GCP Compute Engine VM running the Fivetran Hybrid Deployment agent, connects it to a Cloud SQL PostgreSQL source, syncs to the partner's destination (Snowflake, Databricks, or BigQuery), then tears down the VM on teardown. Demonstrates on-premises/VPC data extraction without opening inbound firewall rules.
 
-| Blueprint | What it provisions | Time |
-|---|---|---|
-| **HD** — Hybrid Deployment | Docker agent on GCE, PostgreSQL connector, Snowflake/Databricks destination | ~12 min |
-| **MDLS** — Managed Data Lake Service | GCS bucket (Delta + Iceberg + Parquet), Fivetran-managed Polaris catalog, Snowflake linked DB | ~20 min |
-| **ODI** — Any-Agent | Full MDLS lake + Databricks UC attach + Genie Space + Snowflake catalog | ~30 min |
+### MDLS — Managed Data Lake Service
+Creates a GCS bucket, provisions a Fivetran `managed_data_lake` destination pointed at it, connects a PostgreSQL source using `QUERY_BASED` replication, syncs agriculture sample data, and produces three open-format outputs from a single write: Delta Lake (transaction log), Apache Iceberg (catalog metadata), and Parquet (data files). Optionally attaches Snowflake via a Polaris catalog integration, Databricks Unity Catalog, or BigQuery Managed Storage (BQMS) as query engines over the same lake files.
 
----
+### ODI — Open Data Integration
+Extends MDLS with a Databricks Genie Space, enabling natural-language querying of the lake data alongside the three open-format engine demos.
 
-## Quick start
+## How a demo run works (MDLS example)
 
-```bash
-# Partner version (bring your own accounts)
-cd pdkpartner
-npm install
-npm run db:setup
-npm run dev
-# Open http://localhost:3002 — follow the setup wizard
 ```
-
-```bash
-# Internal Fivetran version
-cd pdkft
-npm install
-cp .env.example .env.local   # fill in credentials (see pdkft/README.md)
-npm run db:setup
-npm run dev
-# Open http://localhost:3001
+1. Preflight        — verify GCP access, Storage API enabled, Fivetran credentials
+2. Group + Bucket   — create Fivetran group + GCS bucket (softDeletePolicy=0 for org constraints)
+3. Destination      — POST /destinations (service=managed_data_lake, storage=GCS)
+4. Wait connected   — poll until Fivetran mints its GCS service account
+5. IAM grant        — grant storage.objectAdmin to the Fivetran SA on the bucket
+6. Connector        — POST /connections (service=postgres, update_method=QUERY_BASED, paused=true)
+7. Cert approval    — POST /connections/{id}/test → extract TLS cert from failing test detail
+                      → POST /connections/{id}/certificates (encoded_cert + hash)
+                      → re-run /test → all pass → setup_state=connected
+8. Schema narrow    — PATCH schemas to agriculture.agr_records only (non-fatal)
+9. Unpause + sync   — unpause, waitForSetupState, POST /connections/{id}/sync?force=true
+10. Wait sync       — poll until succeeded_at set (up to 20 min)
+11. Engine attach   — Snowflake CATALOG INTEGRATION, Databricks UC, or BQ BQMS (destination-dependent)
+12. QA gate         — verify sync_complete, destination_connected, engine row count
 ```
-
----
-
-## Prerequisites
-
-- Node.js 20+
-- `gcloud` CLI installed and authenticated: `gcloud auth application-default login`
-- A GCP project with billing enabled
-- Fivetran account with API key + secret
-
-### GCP APIs required
-
-- **All blueprints:** Cloud Resource Manager, Service Usage
-- **HD:** Compute Engine, Secret Manager
-- **MDLS / ODI:** Cloud Storage
-
-Enable in one command:
-```bash
-gcloud services enable compute.googleapis.com secretmanager.googleapis.com storage.googleapis.com
-```
-
----
-
-## pdkpartner — Partner Demo Launcher
-
-### Setup
-
-1. `cd pdkpartner && npm install && npm run db:setup && npm run dev`
-2. Open `http://localhost:3002`
-3. The setup wizard collects:
-   - **Fivetran** API key, secret, account ID
-   - **GCP** project ID (and optionally a service account key file path)
-   - **Destination** credentials — Snowflake or Databricks
-
-### Creating a demo
-
-1. Click **New Demo**
-2. Select a blueprint (HD / MDLS / ODI)
-3. Add an optional label (customer name, event)
-4. Click **Run Preflight** — validates all credentials and GCP API access
-5. Click **Launch Demo** — live log stream appears in the drawer
-
-### Recording demos (video)
-
-To record a clean demo video:
-
-1. Set up the screen with the drawer open
-2. Run preflight → show green checks → click Launch
-3. Let logs roll for ~30 seconds (bucket creation, group setup)
-4. **Cut** — provisioning continues in the background
-5. Resume recording at the "Demo ready" green checkmark
-
-For co-working orchestration (trigger via API while you record the browser):
-```bash
-# Requires Claude Code (CLI) — not Claude Desktop chat
-node /tmp/mdls-smoke-test.mjs   # creates + monitors an MDLS demo
-node /tmp/odi-smoke-test.mjs    # creates + monitors an ODI demo
-```
-
-### Smoke tests
-
-End-to-end tests against the live server (no mocks):
-
-```bash
-# Server must be running on localhost:3002
-node /tmp/mdls-smoke-test.mjs   # ~20 min, exits 0 on demo_ready
-node /tmp/odi-smoke-test.mjs    # ~35 min, exits 0 on demo_ready
-```
-
-### Teardown
-
-Every demo has a Teardown button in the demo list. Resources cleaned up in reverse order:
-- Fivetran connection → destination → group
-- GCS bucket (all objects then bucket)
-- Databricks UC catalog name (logged — drop manually if needed)
-- Genie Space
-
----
-
-## pdkft — Internal Fivetran Demo Launcher
-
-Uses pre-configured SE credentials from `.env.local`. See `pdkft/README.md` for full setup.
-
-Blueprints available: HD, MDLS (read-only validation of shared SE lake), ODI (validates pre-built 21-agent infrastructure).
-
----
-
-## Architecture notes
-
-- Both apps: Next.js 15 (App Router), SQLite via Prisma, Tailwind CSS
-- Demos run asynchronously — the runner fires in the background, logs streamed via `/api/demos/:id/logs`
-- Each demo tracks resources in SQLite for clean teardown
-- GCS buckets: `softDeletePolicy.retentionDurationSeconds=0` required for GCP org policy compliance
-- PostgreSQL connector: uses `update_method=XMIN` (no WAL/logical replication required on source)
-
----
 
 ## Known limitations
 
-- Polaris client credentials are not yet surfaced in the Fivetran destination API response — Snowflake catalog integration requires manual credential entry post-provisioning
-- Setup tests for the `postgres` connector type do not resolve via the API test endpoint; the runner unpause-and-sync approach works around this
-- `gcloud auth application-default login` must be re-run after corporate SSO token expiry
+- **Polaris OAuth credentials**: Fivetran's `GET /destinations/{id}` does not return the Polaris OAuth client_id/secret in the response body, so the Snowflake catalog integration is skipped automatically. Check the Fivetran UI destination config for the credentials if needed.
+- **GCP credentials expire**: Run `gcloud auth application-default login` and restart the dev server when you see `invalid_rapt` errors.
+- **Cloud SQL TLS cert**: The shared SE demo DB uses a Google Cloud SQL server cert that Fivetran does not trust by default. The runner auto-approves it via `POST /connections/{id}/certificates` on first connect. The cert hash may change if Cloud SQL rotates it.
+- **GCP zone**: Defaults to `us-central1-a` (set in Setup). The GCS bucket location and Fivetran region are derived from it automatically.
+
+## Setup (pdkpartner)
+
+```bash
+# Prerequisites
+node --version            # >= 20
+gcloud auth application-default login
+
+cd pdkpartner
+npm install
+npx prisma migrate deploy
+npm run dev               # runs on localhost:3002
+```
+
+Open `http://localhost:3002` — the setup wizard will prompt for:
+- Fivetran API key + secret
+- GCP Project ID + zone (+ optional service account key path)
+- Destination: Snowflake (RSA key pair auth), Databricks (PAT + warehouse ID), or BigQuery (dataset name)
+
+## Smoke tests
+
+```bash
+node /tmp/mdls-smoke-test.mjs   # ~11 min end-to-end, exits 0 on demo_ready
+node /tmp/odi-smoke-test.mjs    # ~15 min end-to-end
+```
+
+## Teardown
+
+Every provisioned resource (Fivetran group, destination, connector, GCS bucket) is tracked in the `DemoResource` table. Teardown deletes them in reverse-creation order. Auto-teardown triggers on any fatal error during provisioning.
