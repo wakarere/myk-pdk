@@ -229,19 +229,19 @@ export async function runMdlsDemo(demoId: string) {
       const testResult = await fivetranPost(account, `/connections/${connId}/test`, {});
       const setupTests = (testResult.data?.setup_tests ?? []) as Array<{
         title: string; status: string;
-        details?: Array<{ hash?: string; name?: string }>;
+        details?: Array<{ hash?: string; name?: string; encodedCert?: string }>;
       }>;
       for (const test of setupTests) {
         if (test.status === "FAILED" && test.details?.length) {
           for (const detail of test.details) {
-            if (detail.hash) {
-              await log(demoId, "Connector", `Approving cert fingerprint for "${test.title}": ${detail.name ?? detail.hash.slice(0, 20)}...`);
+            if (detail.hash && detail.encodedCert) {
+              await log(demoId, "Connector", `Approving TLS certificate for "${test.title}": ${detail.name ?? detail.hash.slice(0, 20)}...`);
               try {
-                await fivetranPost(account, `/connections/${connId}/fingerprints`, {
+                await fivetranPost(account, `/connections/${connId}/certificates`, {
+                  encoded_cert: detail.encodedCert,
                   hash: detail.hash,
-                  public_key: "fivetran",
                 });
-                await log(demoId, "Connector", "Certificate fingerprint approved — re-running setup tests");
+                await log(demoId, "Connector", "TLS certificate approved — re-running setup tests");
               } catch (e) {
                 await log(demoId, "Connector", `Cert approval: ${(e as Error).message}`, "warn");
               }
